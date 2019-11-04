@@ -1,8 +1,6 @@
 import EventEmitter from 'events';
 import { getCurrentContext, setCurrentContext, revertContext } from 'event-context';
 
-const instanceMap = new WeakMap;
-const listenerMap = new WeakMap;
 const nextTick = process.nextTick;
 const proto = EventEmitter.prototype;
 const eEmit = proto.emit;
@@ -48,20 +46,9 @@ export const patch = () => {
     if (handler.listener) {
       computation.listener = handler.listener;
     }
-
-    const handlerMap = instanceMap.get(this) || new WeakMap();
-    handlerMap.set(handler, computation);
-    instanceMap.set(this, handlerMap);
-    listenerMap.set(computation, handler);
-    const dispose = () => {
-      eRemoveListener.call(this, type, computation);
-      const handlerMap = instanceMap.get(this);
-      if (handlerMap) {
-        handlerMap.delete(handler);
-      }
-    }
-
-    ctx.addDisposable(dispose);
+    
+    handler._computation = computation;
+    computation._handler = handler;
     return nativeAddFunction.call(this, type, computation);
   }
 
@@ -71,12 +58,11 @@ export const patch = () => {
 
   proto.listeners = function (type) {
     const listeners = eListeners.call(this, type);
-    return listeners.map(handler => listenerMap.get(handler) || handler);
+    return listeners.map((compeutation) => compeutation._handler || compeutation );
   }
 
   proto.removeListener = function (type, listener) {
-    const handlerMap = instanceMap.get(this);
-    const computation = handlerMap ? handlerMap.get(listener) : null;
+    const computation = listener ? listener._computation : null;
     return eRemoveListener.call(this, type, computation || listener);
   }
 }
