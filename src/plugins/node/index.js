@@ -1,47 +1,61 @@
-import EventEmitter from 'events';
-import { getCurrentContext, setCurrentContext, revertContext } from 'event-context';
+'use strict';
 
-const instanceMap = new WeakMap;
-const listenerMap = new WeakMap;
-const nextTick = process.nextTick;
-const proto = EventEmitter.prototype;
-const eEmit = proto.emit;
-const eAddListener = proto.addListener;
-const ePrependListener = proto.prependListener;
-const eRemoveListener = proto.removeListener;
-const eListeners = proto.listeners;
-const noop = () => {}
+Object.defineProperty(exports, '__esModule', { value: true });
 
-export const patch = () => {
-  process.nextTick = (callback, ...rest) => {
-    const ctx = getCurrentContext();
+function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
+
+var EventEmitter = _interopDefault(require('events'));
+var eventContext = require('event-context');
+
+var instanceMap = new WeakMap;
+var listenerMap = new WeakMap;
+var nextTick = process.nextTick;
+var proto = EventEmitter.prototype;
+var eEmit = proto.emit;
+var eAddListener = proto.addListener;
+var ePrependListener = proto.prependListener;
+var eRemoveListener = proto.removeListener;
+var eListeners = proto.listeners;
+var patch = function () {
+  process.nextTick = function (callback) {
+    var rest = [], len = arguments.length - 1;
+    while ( len-- > 0 ) rest[ len ] = arguments[ len + 1 ];
+
+    var ctx = eventContext.getCurrentContext();
     if (!ctx) {
-      return nextTick(callback, ...rest);
+      return nextTick.apply(void 0, [ callback ].concat( rest ));
     }
 
     if (callback.__test === true) {
-      console.log(ctx.label);
     }
 
-    const computation = (...args) => {
-      setCurrentContext(ctx);
-      callback(...args);
-      revertContext();
+    var computation = function () {
+      var args = [], len = arguments.length;
+      while ( len-- ) args[ len ] = arguments[ len ];
+
+      eventContext.setCurrentContext(ctx);
+      callback.apply(void 0, args);
+      eventContext.revertContext();
     }
 
-    nextTick(computation, ...rest)
+    nextTick.apply(void 0, [ computation ].concat( rest ))
   }
 
-  const wrap = nativeAddFunction => function (type, handler) {
-    const ctx = getCurrentContext();
+  var wrap = function (nativeAddFunction) { return function (type, handler) {
+    var this$1 = this;
+
+    var ctx = eventContext.getCurrentContext();
     if (!ctx) {
       return nativeAddFunction.call(this, type, handler);
     }
 
-    const computation = (...args) => {
-      setCurrentContext(ctx);
-      const ret = handler.call(this, ...args);
-      revertContext();
+    var computation = function () {
+      var args = [], len = arguments.length;
+      while ( len-- ) args[ len ] = arguments[ len ];
+
+      eventContext.setCurrentContext(ctx);
+      var ret = handler.call.apply(handler, [ this$1 ].concat( args ));
+      eventContext.revertContext();
       return ret;
     }
 
@@ -49,41 +63,46 @@ export const patch = () => {
       computation.listener = handler.listener;
     }
 
-    const handlerMap = instanceMap.get(this) || new WeakMap();
+    var handlerMap = instanceMap.get(this) || new WeakMap();
     handlerMap.set(handler, computation);
     instanceMap.set(this, handlerMap);
     listenerMap.set(computation, handler);
-    const dispose = () => {
-      eRemoveListener.call(this, type, computation);
-      const handlerMap = instanceMap.get(this);
+    var dispose = function () {
+      eRemoveListener.call(this$1, type, computation);
+      var handlerMap = instanceMap.get(this$1);
       if (handlerMap) {
+        let computaion = handlerMap.get(handler)
         handlerMap.delete(handler);
+        listenerMap.delete(computaion);
       }
     }
 
     ctx.addDisposable(dispose);
     return nativeAddFunction.call(this, type, computation);
-  }
+  }; }
 
 
   proto.addListener = proto.on = wrap(eAddListener);
   proto.prependListener = wrap(ePrependListener);
 
   proto.listeners = function (type) {
-    const listeners = eListeners.call(this, type);
-    return listeners.map(handler => listenerMap.get(handler) || handler);
+    var listeners = eListeners.call(this, type);
+    return listeners.map(function (handler) { return listenerMap.get(handler) || handler; });
   }
 
   proto.removeListener = function (type, listener) {
-    const handlerMap = instanceMap.get(this);
-    const computation = handlerMap ? handlerMap.get(listener) : null;
+    var handlerMap = instanceMap.get(this);
+    var computation = handlerMap ? handlerMap.get(listener) : null;
     return eRemoveListener.call(this, type, computation || listener);
   }
 }
 
-export const unpatch = () => {
+var unpatch = function () {
   process.nextTick = nextTick;
   proto.addListener = proto.on = eAddListener;
   proto.prependListener = ePrependListener;
   proto.removeListener = eRemoveListener;
 }
+
+exports.patch = patch;
+exports.unpatch = unpatch;
